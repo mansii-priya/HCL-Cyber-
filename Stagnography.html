@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Steganography</title>
+
+    <style>
+ body {
+      font-family: Arial;
+      background: light gray
+         text-align: left;
+            padding: 30px;
+        }
+
+        .container {
+            background: white;
+            max-width: 550px;
+            margin: auto;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px #0002;
+        }
+
+        h1 {
+            color: Black;
+        }
+
+        input, textarea, button {
+            width: 90%;
+            padding: 12px;
+            margin: 10px;
+            box-sizing: border-box;
+        }
+
+        textarea {
+            height: 90px;
+        }
+
+        button {
+            background: #263b70;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #405ca0;
+        }
+
+        #preview {
+            max-width: 90%;
+            margin: 15px;
+        }
+
+        #result {
+            font-weight: bold;
+            color: green;
+            overflow-wrap: anywhere;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>Image Steganography</h1>
+    <p>Hide secret messages inside images securely.</p>
+
+    <h3>1. Select an Image</h3>
+    <input type="file" id="imageInput" accept="image/*">
+
+    <img id="preview" style="display:none;">
+
+    <h3>2. Enter Secret Message</h3>
+    <textarea id="message"
+        placeholder="Enter your secret message..."></textarea>
+
+    <button onclick="hideMessage()">
+        Hide Message
+    </button>
+
+    <button onclick="extractMessage()">
+        Extract Message
+    </button>
+
+    <h3>3. Download Hidden Image</h3>
+    <a id="download" style="display:none;">
+        Download Image
+    </a>
+
+    <p id="result"></p>
+
+</div>
+
+<script>
+
+let selectedImage = null;
+
+const imageInput = document.getElementById("imageInput");
+const preview = document.getElementById("preview");
+
+imageInput.addEventListener("change", function(event) {
+
+    const file = event.target.files[0];
+
+    if (!file) return;
+
+    const image = new Image();
+
+    image.onload = function() {
+        selectedImage = image;
+        preview.src = image.src;
+        preview.style.display = "block";
+        document.getElementById("result").innerText =
+            "Image uploaded successfully!";
+    };
+
+    image.onerror = function() {
+        document.getElementById("result").innerText =
+            "Unable to load this image.";
+    };
+
+    image.src = URL.createObjectURL(file);
+
+});
+
+
+// Convert message into binary data
+function hideMessage() {
+
+    if (!selectedImage) {
+        alert("Please select an image first!");
+        return;
+    }
+
+    const message = document.getElementById("message").value;
+
+    if (!message) {
+        alert("Please enter a message!");
+        return;
+    }
+
+    const bytes = new TextEncoder().encode(message);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = selectedImage.width;
+    canvas.height = selectedImage.height;
+
+    const ctx = canvas.getContext("2d", {
+        willReadFrequently: true
+    });
+
+    ctx.drawImage(selectedImage, 0, 0);
+
+    const imageData = ctx.getImageData(
+        0, 0, canvas.width, canvas.height
+    );
+
+    const pixels = imageData.data;
+
+    // Store message length in first 32 bits
+    const bits = [];
+
+    for (let i = 31; i >= 0; i--) {
+        bits.push((bytes.length >>> i) & 1);
+    }
+
+    // Convert message bytes into bits
+    for (const byte of bytes) {
+        for (let i = 7; i >= 0; i--) {
+            bits.push((byte >> i) & 1);
+        }
+    }
+
+    if (bits.length > canvas.width * canvas.height) {
+        alert("Message is too large for this image!");
+        return;
+    }
+
+    // Hide bits in the least significant bit of red pixels
+    for (let i = 0; i < bits.length; i++) {
+        pixels[i * 4] =
+            (pixels[i * 4] & 254) | bits[i];
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    canvas.toBlob(function(blob) {
+
+        if (!blob) {
+            alert("Could not create image!");
+            return;
+        }
+
+        const url = URL.createObjectURL(blob);
+        const download = document.getElementById("download");
+
+        download.href = url;
+        download.download = "secret-image.png";
+        download.style.display = "inline-block";
+        download.innerText = "Download Secret Image";
+
+        document.getElementById("result").innerText =
+            "Message hidden successfully!";
+
+    }, "image/png");
+
+}
+
+
+// Extract hidden message
+function extractMessage() {
+
+    if (!selectedImage) {
+        alert("Upload the image containing the hidden message!");
+        return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = selectedImage.width;
+    canvas.height = selectedImage.height;
+
+    const ctx = canvas.getContext("2d", {
+        willReadFrequently: true
+    });
+
+    ctx.drawImage(selectedImage, 0, 0);
+
+    const pixels = ctx.getImageData(
+        0, 0, canvas.width, canvas.height
+    ).data;
+
+    function readByte(startBit) {
+
+        let value = 0;
+
+        for (let i = 0; i < 8; i++) {
+            const bit = pixels[(startBit + i) * 4] & 1;
+            value = (value << 1) | bit;
+        }
+
+        return value;
+    }
+
+    if (pixels.length / 4 < 32) {
+        alert("Invalid image!");
+        return;
+    }
+
+    // Read message length
+    let length = 0;
+
+    for (let i = 0; i < 32; i++) {
+        length = (length << 1) |
+            (pixels[i * 4] & 1);
+    }
+
+    const maxBytes = Math.floor(
+        (canvas.width * canvas.height - 32) / 8
+    );
+
+    if (length > maxBytes) {
+        alert("No valid hidden message found!");
+        return;
+    }
+
+    // Extract message bytes
+    const bytes = new Uint8Array(length);
+
+    for (let i = 0; i < length; i++) {
+        bytes[i] = readByte(32 + i * 8);
+    }
+
+    try {
+        const message = new TextDecoder(
+            "utf-8", { fatal: true }
+        ).decode(bytes);
+
+        document.getElementById("result").innerText =
+            "Secret Message: " + message;
+
+    } catch {
+ document.getElementById("result").innerText =
+     "No valid message found in this image.";
+    }
+
+}
+
+</script>
+
+</body>
+</html>
